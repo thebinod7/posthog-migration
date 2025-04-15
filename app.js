@@ -4,12 +4,12 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
-const PROJECT_ID = process.env.POSTHOG_PROJECT_ID;
+const PROJECT_ID = process.env.POSTHOG_LIVE_PROJECT_ID;
 const HOST_URL = 'https://us.i.posthog.com';
 
 const ph_client = new PostHog(PROJECT_ID, {
     host: HOST_URL,
-    requestTimeout: 50000,
+    requestTimeout: 10000,
 });
 
 const connection = mysql.createConnection({
@@ -25,8 +25,9 @@ connection.connect((err) => {
     console.log('Connected to MySQL!');
 });
 
+// Add by chunk size of 500
 async function fetchAndMigrateUsers() {
-    const limit = 5;
+    const limit = 50;
     const offset = 0;
     try {
         const query = `
@@ -52,22 +53,15 @@ async function main() {
 }
 
 async function migrateToPosthog(users) {
-    // const filteredUsers = users.filter(
-    //     (user) => user.user_email && user.display_name
-    // );
+    let counter = 0;
+    const filteredUsers = users.filter(
+        (user) => user.user_email && user.display_name
+    );
+    if (!filteredUsers.length) {
+        console.log('==No users to migrate==');
+        return;
+    }
 
-    // Create sample
-    const filteredUsers = [
-        {
-            user_email: 'john101doe@mailinator',
-            display_name: 'John Doe',
-            user_registered: '2019-01-21 21:12:15',
-            total_impact: {
-                personal: 0,
-                professional: 0,
-            },
-        },
-    ];
     for (const user of filteredUsers) {
         const payload = {
             distinctId: user.user_email,
@@ -75,17 +69,20 @@ async function migrateToPosthog(users) {
                 email: user.user_email,
                 name: user.display_name,
                 registered_at: user.user_registered,
-                total_impact: {
+                total_impact_kg: {
                     personal: 0,
                     professional: 0,
                 },
             },
         };
         await addToPosthog(payload);
+        counter++;
     }
     ph_client.flush();
     ph_client.shutdown();
-    console.log('===Users migrated successfully===');
+    console.log(
+        `===${counter}/${filteredUsers.length} users added to Posthog===`
+    );
 }
 
 async function addToPosthog(payload) {
